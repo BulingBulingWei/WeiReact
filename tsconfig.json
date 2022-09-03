@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "outDir": "./dist/",
+        "sourceMap": true,
+        // 使用什么模块管理系统
+        "module": "ES6",
+        "target": "ES2015",
+        "jsx": "react",
+        "jsxFactory": "WeiReact.createElement",
+        "allowJs": true
+        // "moduleResolution": "node"
+    }
+}
