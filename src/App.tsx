@@ -1,12 +1,21 @@
 import { WeiReact } from "./WeiReact";
+import { useState } from "./WeiReact";
 // 注意：函数式组件的命名的首字母必须大写
 
 function Wei(props: any) {
+  const [num, setNum] = useState(1);
   return (
     <div>
       <h1 className="hahaha">凯哥好厉害！</h1>
       <h1 className="iiiiii" style="color:pink">
         *\^_^/*
+      </h1>
+      <h1
+        onclick={() => {
+          setNum(2);
+        }}
+      >
+        {num}
       </h1>
     </div>
   );
@@ -33,4 +42,4 @@ function Com(props: any) {
   );
 }
 
-WeiReact.render(<Com />, document.getElementById("root"));
+WeiReact.render(<Wei />, document.getElementById("root"));

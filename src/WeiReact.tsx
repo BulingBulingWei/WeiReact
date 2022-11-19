@@ -1,3 +1,4 @@
+// 标签元素
 interface HTMLElementInformation {
   type: keyof HTMLElementTagNameMap;
   props: {
@@ -10,6 +11,7 @@ function isHTMLElementInformation(x: any): x is HTMLElementInformation {
   return (x as HTMLElementInformation).props.children != undefined;
 }
 
+// 字符串元素（叶子元素）
 interface TextElementInformation {
   type: "TEXT_ELEMENT";
   props: {
@@ -21,10 +23,12 @@ function isTextElementInformation(x: any): x is TextElementInformation {
   return (x as TextElementInformation).type == "TEXT_ELEMENT";
 }
 
+// 函数式组件
 interface FunctionElementInformation {
   //函数式组件，类型是一个返回 ElementInformation 的函数
   type: (props: any) => ElementInformation;
   props: {};
+  hooks: { state: any; actions: ((state: any) => any)[] }[];
 }
 
 function isFunctionElementInformation(x: any): x is FunctionElementInformation {
@@ -47,6 +51,7 @@ type Fiber = ElementInformation & FiberInformation;
 
 let topNode: Fiber = null;
 let currentNode: Fiber = null;
+let hookIndex = -1;
 
 //----------------------------------------------------------------
 
@@ -59,6 +64,7 @@ function createElement(
     return {
       type,
       props,
+      hooks: [],
     };
   }
   return {
@@ -111,6 +117,7 @@ function render(element: ElementInformation, container: HTMLElement) {
   topNode.child.parent = topNode;
   currentNode = topNode.child;
 
+  // 根据 ElementInformation 创建 DOM节点
   function createDOM(
     element: HTMLElementInformation | TextElementInformation
   ): HTMLElement | Text {
@@ -120,7 +127,7 @@ function render(element: ElementInformation, container: HTMLElement) {
       let dom: HTMLElement = document.createElement(element.type);
       Object.keys(element.props)
         .filter((key) => {
-          return key != "chlidren";
+          key != "chlidren";
         })
         .forEach((key) => {
           //事件
@@ -211,37 +218,56 @@ function render(element: ElementInformation, container: HTMLElement) {
     }
 
     function commitRoot(rootFiber: Fiber): void {
-      function commitWork(fiber: Fiber): void {
-        if (fiber.type == "TEXT_ELEMENT") {
-          return;
-        }
-        if (fiber.child) {
-          let par: Fiber = fiber;
-          while (!par.dom) {
-            par = par.parent;
-          }
-          if (fiber.child.dom) {
-            par.dom.appendChild(fiber.child.dom);
-          }
-          commitWork(fiber.child);
+      // function commitWork(fiber: Fiber): void {
+      //   if (fiber.type == "TEXT_ELEMENT") {
+      //     return;
+      //   }
+      //   if (fiber.child) {
+      //     let par: Fiber = fiber;
+      //     while (!par.dom) {
+      //       par = par.parent;
+      //     }
+      //     if (fiber.child.dom) {
+      //       par.dom.appendChild(fiber.child.dom);
+      //     }
+      //     commitWork(fiber.child);
 
-          let sibling: Fiber = fiber.child.sibling;
-          while (sibling != null) {
-            if (sibling.dom) {
-              par.dom.appendChild(sibling.dom);
-            }
+      //     let sibling: Fiber = fiber.child.sibling;
+      //     while (sibling != null) {
+      //       if (sibling.dom) {
+      //         par.dom.appendChild(sibling.dom);
+      //       }
 
-            commitWork(sibling);
-            sibling = sibling.sibling;
+      //       commitWork(sibling);
+      //       sibling = sibling.sibling;
+      //     }
+      //   }
+      // }
+      function commitWork(fiber: Fiber) {
+        if (fiber == null) return;
+        if (!fiber.dom) {
+          commitWork(findNextFiber(fiber));
+        } else {
+          let now = fiber;
+          while (!now.parent.dom) {
+            now = now.parent;
           }
+          now.parent.dom.appendChild(fiber.dom);
+          commitWork(findNextFiber(fiber));
         }
+      }
+
+      const nodes = container.childNodes;
+      for (let i = 0; i < nodes.length; ++i) {
+        let node = nodes[i];
+        container.removeChild(node);
       }
 
       commitWork(rootFiber);
     }
 
     //render main step
-    if (deadline.timeRemaining() > 20 && currentNode != null) {
+    if (deadline.timeRemaining() > 10 && currentNode != null) {
       // 如果是非函数式组件
       if (!isFunctionElementInformation(currentNode)) {
         currentNode.dom = createDOM(currentNode);
@@ -250,6 +276,7 @@ function render(element: ElementInformation, container: HTMLElement) {
       }
       // 如果是函数式组件
       else {
+        hookIndex = -1;
         const elementInformation = currentNode.type(currentNode.props);
         let newFiber = {
           ...elementInformation,
@@ -267,9 +294,52 @@ function render(element: ElementInformation, container: HTMLElement) {
         // container.appendChild(topNode.dom);
       }
     }
+    //递归调用
     requestIdleCallback(wookLoop);
   }
   requestIdleCallback(wookLoop);
+}
+
+function useState(initial: any) {
+  if (!isFunctionElementInformation(currentNode)) {
+    throw new Error("在非函数式节点使用了useState");
+  }
+
+  hookIndex += 1;
+  let workInProgressFiber = currentNode;
+  let index = hookIndex;
+
+  if (workInProgressFiber.hooks.length <= hookIndex) {
+    //第一次调用这个setState
+    workInProgressFiber.hooks.push({
+      state: initial,
+      actions: [],
+    });
+  } else {
+    //非第一次调用这个setState
+    workInProgressFiber.hooks[hookIndex].actions.forEach((fun) => {
+      workInProgressFiber.hooks[hookIndex].state = fun(
+        workInProgressFiber.hooks[hookIndex].state
+      );
+    });
+    workInProgressFiber.hooks[hookIndex].actions = [];
+  }
+
+  function setState(value: ((state: any) => any) | any) {
+    if (value instanceof Function) {
+      workInProgressFiber.hooks[index].actions.push(value);
+    }
+    //传入的是个值
+    else {
+      workInProgressFiber.hooks[index].actions.push((state: any) => {
+        return value;
+      });
+    }
+    //使当前节点指向container，重新渲染
+    currentNode = topNode;
+  }
+
+  return [workInProgressFiber.hooks[hookIndex].state, setState];
 }
 
 //-------------------------------------
@@ -277,6 +347,8 @@ export const WeiReact = {
   createElement,
   render,
 };
+
+export { useState };
 
 // const element = (
 //   <div>
